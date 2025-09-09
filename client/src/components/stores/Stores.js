@@ -151,7 +151,7 @@ const Stores = () => {
                 <div className="flex items-center gap-1">
                   <Star className="h-5 w-5 text-yellow-400 fill-current" />
                   <span className="font-medium">
-                    {store.averageRating ? store.averageRating.toFixed(1) : 'No ratings'}
+                    {store.average_rating ? store.average_rating.toFixed(1) : 'No ratings'}
                   </span>
                 </div>
               </div>
@@ -182,7 +182,7 @@ const Stores = () => {
               </div>
               
               <div className="text-sm text-gray-500">
-                {store.totalRatings || 0} rating{store.totalRatings !== 1 ? 's' : ''}
+                {store.total_ratings || 0} rating{store.total_ratings !== 1 ? 's' : ''}
               </div>
             </div>
           </div>

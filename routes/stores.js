@@ -4,19 +4,25 @@ const { pool } = require('../config/database');
 
 const router = express.Router();
 
-// Get all stores with average ratings
+// Allowed sort fields
+const allowedSortFields = ['name', 'email', 'address', 'average_rating', 'created_at'];
+const allowedSortOrders = ['ASC', 'DESC'];
+
+// -------------------- Get all stores --------------------
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    const { search, sortBy = 'name', sortOrder = 'ASC' } = req.query;
+    let { search, sortBy = 'name', sortOrder = 'ASC' } = req.query;
     const userId = req.user.id;
 
     let query = `
       SELECT s.id, s.name, s.email, s.address, s.created_at,
+             u.name AS owner_name,
              COALESCE(AVG(r.rating), 0) as average_rating,
              COUNT(r.id) as total_ratings,
              (SELECT rating FROM ratings WHERE user_id = ? AND store_id = s.id LIMIT 1) as user_rating
       FROM stores s
       LEFT JOIN ratings r ON s.id = r.store_id
+      LEFT JOIN users u ON s.owner_id = u.id
     `;
 
     const queryParams = [userId];
@@ -28,30 +34,25 @@ router.get('/', authenticateToken, async (req, res) => {
 
     query += ` GROUP BY s.id`;
 
-    // Validate sort parameters
-    const allowedSortFields = ['name', 'email', 'address', 'average_rating', 'created_at'];
-    const allowedSortOrders = ['ASC', 'DESC'];
-
-    if (!allowedSortFields.includes(sortBy)) {
-      sortBy = 'name';
-    }
-
-    if (!allowedSortOrders.includes(sortOrder.toUpperCase())) {
-      sortOrder = 'ASC';
-    }
+    if (!allowedSortFields.includes(sortBy)) sortBy = 'name';
+    if (!allowedSortOrders.includes(sortOrder.toUpperCase())) sortOrder = 'ASC';
 
     query += ` ORDER BY ${sortBy} ${sortOrder}`;
 
     const [stores] = await pool.execute(query, queryParams);
+    // ensure numeric values
+    stores.forEach(store => {
+      store.average_rating = parseFloat(store.average_rating) || 0;
+    });
 
-    res.json({ stores });
+    res.json(stores); // return array directly
   } catch (error) {
     console.error('Stores fetch error:', error);
     res.status(500).json({ error: 'Failed to fetch stores' });
   }
 });
 
-// Get store by ID with detailed information
+// -------------------- Get store by ID --------------------
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
     const storeId = req.params.id;
@@ -59,11 +60,13 @@ router.get('/:id', authenticateToken, async (req, res) => {
 
     const [stores] = await pool.execute(`
       SELECT s.id, s.name, s.email, s.address, s.created_at,
-             COALESCE(AVG(r.rating), 0) as average_rating,
+             u.name AS owner_name,
+             CAST(COALESCE(AVG(r.rating), 0) AS DECIMAL(10,2)) as average_rating,
              COUNT(r.id) as total_ratings,
              (SELECT rating FROM ratings WHERE user_id = ? AND store_id = s.id LIMIT 1) as user_rating
       FROM stores s
       LEFT JOIN ratings r ON s.id = r.store_id
+      LEFT JOIN users u ON s.owner_id = u.id
       WHERE s.id = ?
       GROUP BY s.id
     `, [userId, storeId]);
@@ -72,7 +75,6 @@ router.get('/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Store not found' });
     }
 
-    // Get recent ratings for this store
     const [ratings] = await pool.execute(`
       SELECT r.rating, r.comment, r.created_at,
              u.name as user_name, u.role as user_role
@@ -83,29 +85,37 @@ router.get('/:id', authenticateToken, async (req, res) => {
       LIMIT 10
     `, [storeId]);
 
+    // ensure numeric values
+    stores.forEach(store => {
+      store.average_rating = parseFloat(store.average_rating) || 0;
+    });
+
+
     const store = stores[0];
     store.recent_ratings = ratings;
 
-    res.json({ store });
+    res.json(store); // return object directly
   } catch (error) {
     console.error('Store fetch error:', error);
     res.status(500).json({ error: 'Failed to fetch store' });
   }
 });
 
-// Search stores by name and address
+// -------------------- Search stores --------------------
 router.get('/search', authenticateToken, async (req, res) => {
   try {
-    const { name, address, sortBy = 'name', sortOrder = 'ASC' } = req.query;
+    let { name, address, sortBy = 'name', sortOrder = 'ASC' } = req.query;
     const userId = req.user.id;
 
     let query = `
       SELECT s.id, s.name, s.email, s.address, s.created_at,
-             COALESCE(AVG(r.rating), 0) as average_rating,
+             u.name AS owner_name,
+             CAST(COALESCE(AVG(r.rating), 0) AS DECIMAL(10,2)) as average_rating,
              COUNT(r.id) as total_ratings,
              (SELECT rating FROM ratings WHERE user_id = ? AND store_id = s.id LIMIT 1) as user_rating
       FROM stores s
       LEFT JOIN ratings r ON s.id = r.store_id
+      LEFT JOIN users u ON s.owner_id = u.id
       WHERE 1=1
     `;
 
@@ -123,30 +133,27 @@ router.get('/search', authenticateToken, async (req, res) => {
 
     query += ` GROUP BY s.id`;
 
-    // Validate sort parameters
-    const allowedSortFields = ['name', 'email', 'address', 'average_rating', 'created_at'];
-    const allowedSortOrders = ['ASC', 'DESC'];
-
-    if (!allowedSortFields.includes(sortBy)) {
-      sortBy = 'name';
-    }
-
-    if (!allowedSortOrders.includes(sortOrder.toUpperCase())) {
-      sortOrder = 'ASC';
-    }
+    if (!allowedSortFields.includes(sortBy)) sortBy = 'name';
+    if (!allowedSortOrders.includes(sortOrder.toUpperCase())) sortOrder = 'ASC';
 
     query += ` ORDER BY ${sortBy} ${sortOrder}`;
 
     const [stores] = await pool.execute(query, queryParams);
 
-    res.json({ stores });
+    // ensure numeric values
+    stores.forEach(store => {
+      store.average_rating = parseFloat(store.average_rating) || 0;
+    });
+
+
+    res.json(stores); // return array directly
   } catch (error) {
     console.error('Store search error:', error);
     res.status(500).json({ error: 'Failed to search stores' });
   }
 });
 
-// Get store owner's store information
+// -------------------- Store owner store info --------------------
 router.get('/owner/store', authenticateToken, requireUser, async (req, res) => {
   try {
     const userId = req.user.id;
@@ -157,10 +164,12 @@ router.get('/owner/store', authenticateToken, requireUser, async (req, res) => {
 
     const [stores] = await pool.execute(`
       SELECT s.id, s.name, s.email, s.address, s.created_at,
-             COALESCE(AVG(r.rating), 0) as average_rating,
+             u.name AS owner_name,
+             CAST(COALESCE(AVG(r.rating), 0) AS DECIMAL(10,2)) as average_rating,
              COUNT(r.id) as total_ratings
       FROM stores s
       LEFT JOIN ratings r ON s.id = r.store_id
+      LEFT JOIN users u ON s.owner_id = u.id
       WHERE s.owner_id = ?
       GROUP BY s.id
     `, [userId]);
@@ -169,7 +178,6 @@ router.get('/owner/store', authenticateToken, requireUser, async (req, res) => {
       return res.status(404).json({ error: 'No store found for this user' });
     }
 
-    // Get all ratings for this store
     const [ratings] = await pool.execute(`
       SELECT r.rating, r.comment, r.created_at,
              u.name as user_name, u.role as user_role
@@ -179,10 +187,15 @@ router.get('/owner/store', authenticateToken, requireUser, async (req, res) => {
       ORDER BY r.created_at DESC
     `, [stores[0].id]);
 
+    // ensure numeric values
+    stores.forEach(store => {
+      store.average_rating = parseFloat(store.average_rating) || 0;
+    });
+
     const store = stores[0];
     store.ratings = ratings;
 
-    res.json({ store });
+    res.json(store); // return object directly
   } catch (error) {
     console.error('Store owner store fetch error:', error);
     res.status(500).json({ error: 'Failed to fetch store information' });
